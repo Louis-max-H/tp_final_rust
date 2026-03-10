@@ -63,7 +63,7 @@ pub enum ClientMsg {
     },
     Ttl {
         status: String,
-        ttl: usize,
+        ttl: i64,
     },
     Incr {
         status: String,

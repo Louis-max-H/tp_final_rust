@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     io,
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
@@ -11,6 +12,10 @@ use crate::protocol::{ClientMsg, ServerMsg};
 mod protocol;
 
 const SERVER_ADDR: &str = "127.0.0.1:7878";
+struct ServerEntry {
+    expire: Option<Instant>,
+    value: String,
+}
 
 // ─── Programme principal ──────────────────────────────────────────────────────────
 #[tokio::main]
@@ -22,7 +27,7 @@ async fn main() {
         )
         .init();
 
-    let store: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+    let store: Arc<Mutex<HashMap<String, ServerEntry>>> = Arc::new(Mutex::new(HashMap::new()));
 
     let listener = TcpListener::bind(SERVER_ADDR)
         .await
@@ -47,7 +52,7 @@ async fn main() {
 
 // ─── Client ──────────────────────────────────────────────────────────
 #[allow(unused_variables)]
-async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, String>>>) {
+async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, ServerEntry>>>) {
     let (read_half, mut write_half) = socket.into_split();
     let mut reader = BufReader::new(read_half);
     let mut line = String::new();
@@ -93,14 +98,20 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, Strin
                     let data = store.lock().unwrap();
                     ClientMsg::Get {
                         status: "ok".to_string(),
-                        value: data.get(&key).cloned(),
+                        value: data.get(&key).map(|entry| entry.value.clone()),
                     }
                 }
 
                 // Set
                 ServerMsg::Set { key, value } => {
                     let mut data = store.lock().unwrap();
-                    data.insert(key, value);
+                    data.insert(
+                        key,
+                        ServerEntry {
+                            value,
+                            expire: None,
+                        },
+                    );
                     ClientMsg::Set {
                         status: "ok".to_string(),
                     }
@@ -123,23 +134,93 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, Strin
                         keys: data.keys().into_iter().cloned().collect(),
                     }
                 }
-                
-                ServerMsg::Expire { key: _, seconds: _ } => ClientMsg::Error {
-                    status: "error".to_string(),
-                    message: "Not yet implemented".to_string(),
-                },
-                ServerMsg::Ttl { key: _ } => ClientMsg::Error {
-                    status: "error".to_string(),
-                    message: "Not yet implemented".to_string(),
-                },
-                ServerMsg::Incr { key: _ } => ClientMsg::Error {
-                    status: "error".to_string(),
-                    message: "Not yet implemented".to_string(),
-                },
-                ServerMsg::Decr { key: _ } => ClientMsg::Error {
-                    status: "error".to_string(),
-                    message: "Not yet implemented".to_string(),
-                },
+
+                // Expire
+                ServerMsg::Expire { key, seconds } => {
+                    let mut data = store.lock().unwrap();
+                    data.get_mut(&key).map(|entry| {
+                        entry.expire = Some(Instant::now() + Duration::from_secs(seconds as u64))
+                    });
+                    ClientMsg::Expire {
+                        status: "ok".to_string(),
+                    }
+                }
+
+                // TTL
+                ServerMsg::Ttl { key } => {
+                    let data = store.lock().unwrap();
+                    let ttl: i64 = match data.get(&key) {
+                        None => -2,
+                        Some(entry) => match &entry.expire {
+                            None => -1,
+                            Some(expire) => {
+                                expire.saturating_duration_since(Instant::now()).as_secs() as i64
+                            }
+                        },
+                    };
+                    ClientMsg::Ttl {
+                        status: "ok".to_string(),
+                        ttl,
+                    }
+                }
+
+                // Incr
+                ServerMsg::Incr { key } => {
+                    let mut data = store.lock().unwrap();
+                    let (val, ttl) = match data.get(&key) {
+                        Some(entry) => match entry.value.trim().parse::<i64>() {
+                            Ok(v) => (v + 1, entry.expire),
+                            Err(_) => {
+                                break 'server_response ClientMsg::Error {
+                                    status: "error".to_string(),
+                                    message: "not an integer".to_string(),
+                                };
+                            }
+                        },
+                        None => (1, None),
+                    };
+                    data.insert(
+                        key,
+                        ServerEntry {
+                            value: val.to_string(),
+                            expire: ttl,
+                        },
+                    );
+                    ClientMsg::Incr {
+                        status: "ok".to_string(),
+                        value: val,
+                    }
+                }
+
+                // Decr
+                ServerMsg::Decr { key } => {
+                    let mut data = store.lock().unwrap();
+                    let (val, ttl) = match data.get(&key) {
+                        Some(entry) => match entry.value.trim().parse::<i64>() {
+                            Ok(v) => (v - 1, entry.expire),
+                            Err(_) => {
+                                break 'server_response ClientMsg::Error {
+                                    status: "error".to_string(),
+                                    message: "not an integer".to_string(),
+                                };
+                            }
+                        },
+                        None => (-1, None),
+                    };
+                    data.insert(
+                        key,
+                        ServerEntry {
+                            value: val.to_string(),
+                            expire: ttl,
+                        },
+                    );
+                    ClientMsg::Decr {
+                        status: "ok".to_string(),
+                        value: val,
+                    }
+                }
+
+                // Save
                 ServerMsg::Save {} => ClientMsg::Error {
                     status: "error".to_string(),
                     message: "Not yet implemented".to_string(),
