@@ -28,7 +28,7 @@ Un **client de test** (binaire fourni) évaluera automatiquement votre serveur.
 
 - **TCP** sur le port **7878** (`127.0.0.1:7878`)
 - Chaque message (requête ou réponse) est **un objet JSON sur une seule ligne**,
-  terminé par `\n`
+terminé par `\n`
 - Le serveur lit une requête, envoie une réponse, puis attend la requête suivante
 - Chaque client est traité dans sa propre tâche Tokio (connexions concurrentes)
 
@@ -53,19 +53,21 @@ Chaque requête est un objet JSON avec un champ `"cmd"` obligatoire :
 
 Chaque réponse contient un champ `"status"` (`"ok"` ou `"error"`) :
 
-| Commande | Réponse succès | Notes |
-|----------|---------------|-------|
-| `PING`   | `{"status": "ok"}` | |
-| `SET`    | `{"status": "ok"}` | |
-| `GET`    | `{"status": "ok", "value": "bar"}` | `"value": null` si la clé n'existe pas |
-| `DEL`    | `{"status": "ok", "count": 1}` | `0` si la clé n'existait pas |
-| `KEYS` | `{"status": "ok", "keys": ["a", "b"]}` | Liste de toutes les clés (ordre quelconque) |
-| `EXPIRE` | `{"status": "ok"}` | |
-| `TTL` | `{"status": "ok", "ttl": 25}` | `-1` si pas d'expiration, `-2` si clé inexistante |
-| `INCR` | `{"status": "ok", "value": 6}` | Valeur après incrémentation (entier) |
-| `DECR` | `{"status": "ok", "value": 4}` | Valeur après décrémentation (entier) |
-| `SAVE` | `{"status": "ok"}` | |
-| Erreur | `{"status": "error", "message": "..."}` | Commande inconnue, JSON invalide, etc. |
+
+| Commande | Réponse succès                          | Notes                                             |
+| -------- | --------------------------------------- | ------------------------------------------------- |
+| `PING`   | `{"status": "ok"}`                      |                                                   |
+| `SET`    | `{"status": "ok"}`                      |                                                   |
+| `GET`    | `{"status": "ok", "value": "bar"}`      | `"value": null` si la clé n'existe pas            |
+| `DEL`    | `{"status": "ok", "count": 1}`          | `0` si la clé n'existait pas                      |
+| `KEYS`   | `{"status": "ok", "keys": ["a", "b"]}`  | Liste de toutes les clés (ordre quelconque)       |
+| `EXPIRE` | `{"status": "ok"}`                      |                                                   |
+| `TTL`    | `{"status": "ok", "ttl": 25}`           | `-1` si pas d'expiration, `-2` si clé inexistante |
+| `INCR`   | `{"status": "ok", "value": 6}`          | Valeur après incrémentation (entier)              |
+| `DECR`   | `{"status": "ok", "value": 4}`          | Valeur après décrémentation (entier)              |
+| `SAVE`   | `{"status": "ok"}`                      |                                                   |
+| Erreur   | `{"status": "error", "message": "..."}` | Commande inconnue, JSON invalide, etc.            |
+
 
 ---
 
@@ -92,6 +94,7 @@ Supprime une clé. Retourne `"count": 1` si la clé existait, `"count": 0` sinon
 ### Multi-client
 
 Votre serveur **doit** gérer plusieurs connexions simultanées :
+
 - Un `SET` effectué par le client A doit être visible par le client B via `GET`
 - La déconnexion d'un client ne doit pas affecter les autres
 
@@ -147,6 +150,7 @@ points de ce palier.
 ### TTL
 
 Retourne le temps restant avant expiration d'une clé (en secondes) :
+
 - Clé avec expiration : un entier positif (secondes restantes)
 - Clé sans expiration : `-1`
 - Clé inexistante : `-2`
@@ -170,16 +174,16 @@ struct Entry {
 ### INCR / DECR (3 pts)
 
 - `INCR` : incrémente la valeur associée à la clé (interprétée comme un entier).
-  Si la clé n'existe pas, elle est créée avec la valeur `1` (resp. `-1` pour `DECR`).
+Si la clé n'existe pas, elle est créée avec la valeur `1` (resp. `-1` pour `DECR`).
 - La réponse contient la nouvelle valeur : `{"status": "ok", "value": 42}`
 - Si la valeur n'est pas un entier valide → `{"status": "error", "message": "not an integer"}`
 
 ### SAVE (1 pt)
 
-- Sauvegarde l'état complet du store dans un fichier `dump.json` dans le
-  répertoire courant du serveur
-- Format du fichier : libre (un objet JSON `{"key": "value", ...}` suffit)
-- La réponse est `{"status": "ok"}`
+- *Sauvegarde l'état complet du store dans un fichier* `dump.json` *dans le
+répertoire courant du serveur*
+- *Format du fichier : libre (un objet JSON* `{"key": "value", ...}` *suffit)*
+- *La réponse est* `{"status": "ok"}`
 
 ---
 

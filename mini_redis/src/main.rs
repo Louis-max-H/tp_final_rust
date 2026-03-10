@@ -6,6 +6,7 @@ use std::{
 };
 use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::time::interval;
 
 use crate::protocol::{ClientMsg, ServerMsg};
 
@@ -28,6 +29,17 @@ async fn main() {
         .init();
 
     let store: Arc<Mutex<HashMap<String, ServerEntry>>> = Arc::new(Mutex::new(HashMap::new()));
+
+    // Tâche de fond : nettoie les clés expirées toutes les secondes
+    let store_cleanup = store.clone();
+    tokio::spawn(async move {
+        let mut ticker = interval(Duration::from_secs(1));
+        loop {
+            ticker.tick().await;
+            let mut data = store_cleanup.lock().unwrap();
+            data.retain(|_, entry| entry.expire.map(|exp| exp > Instant::now()).unwrap_or(true));
+        }
+    });
 
     let listener = TcpListener::bind(SERVER_ADDR)
         .await
@@ -131,16 +143,16 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, Serve
                     let data = store.lock().unwrap();
                     ClientMsg::Keys {
                         status: "ok".to_string(),
-                        keys: data.keys().into_iter().cloned().collect(),
+                        keys: data.keys().cloned().collect(),
                     }
                 }
 
                 // Expire
                 ServerMsg::Expire { key, seconds } => {
                     let mut data = store.lock().unwrap();
-                    data.get_mut(&key).map(|entry| {
-                        entry.expire = Some(Instant::now() + Duration::from_secs(seconds as u64))
-                    });
+                    if let Some(entry) = data.get_mut(&key) {
+                        entry.expire = Some(Instant::now() + Duration::from_secs(seconds as u64));
+                    }
                     ClientMsg::Expire {
                         status: "ok".to_string(),
                     }
@@ -228,6 +240,7 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, Serve
             }
         };
 
+        // Envoyer la réponse
         if send_response(&mut write_half, &response).await.is_err() {
             return;
         }
