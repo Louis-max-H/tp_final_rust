@@ -248,8 +248,7 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, Serve
                         .collect();
 
                     match std::fs::File::create("dump.json").and_then(|file| {
-                        serde_json::to_writer(file, &to_save)
-                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+                        serde_json::to_writer(file, &to_save).map_err(std::io::Error::other)
                     }) {
                         Ok(()) => ClientMsg::Save {
                             status: "ok".to_string(),
@@ -308,7 +307,10 @@ mod tests {
             .write_all(request.as_bytes())
             .await
             .expect("Écriture de la requête échouée");
-        stream.write_all(b"\n").await.expect("Écriture du newline échouée");
+        stream
+            .write_all(b"\n")
+            .await
+            .expect("Écriture du newline échouée");
 
         // Lire la réponse
         let mut reader = BufReader::new(&mut stream);
@@ -321,7 +323,10 @@ mod tests {
         // Vérifier la réponse
         let parsed: serde_json::Value =
             serde_json::from_str(response.trim()).expect("Réponse JSON invalide");
-        assert_eq!(parsed["status"], "ok", "La réponse PING doit avoir status: ok");
+        assert_eq!(
+            parsed["status"], "ok",
+            "La réponse PING doit avoir status: ok"
+        );
 
         // Fermer le serveur (il tournera indéfiniment sinon, mais le test est terminé)
         server_handle.abort();
