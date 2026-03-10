@@ -13,6 +13,7 @@ use crate::protocol::{ClientMsg, ServerMsg};
 mod protocol;
 
 const SERVER_ADDR: &str = "127.0.0.1:7878";
+
 struct ServerEntry {
     expire: Option<Instant>,
     value: String,
@@ -21,6 +22,7 @@ struct ServerEntry {
 // ─── Programme principal ──────────────────────────────────────────────────────────
 #[tokio::main]
 async fn main() {
+    // Init du tracing
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -28,6 +30,11 @@ async fn main() {
         )
         .init();
 
+    run_server(SERVER_ADDR).await;
+}
+
+/// Lance le serveur sur l'adresse donnée. Utilisé par main() et par les tests.
+async fn run_server(addr: &str) {
     let store: Arc<Mutex<HashMap<String, ServerEntry>>> = Arc::new(Mutex::new(HashMap::new()));
 
     // Tâche de fond : nettoie les clés expirées toutes les secondes
@@ -41,11 +48,11 @@ async fn main() {
         }
     });
 
-    let listener = TcpListener::bind(SERVER_ADDR)
+    let listener = TcpListener::bind(addr)
         .await
         .expect("Failed to bind TCP listener");
 
-    println!("Le serveur est lancé sur {} !", SERVER_ADDR);
+    println!("Le serveur est lancé sur {} !", addr);
 
     loop {
         let (socket, _addr) = match listener.accept().await {
@@ -70,7 +77,7 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, Serve
     let mut line = String::new();
 
     loop {
-        // Lire les lignes
+        // ─── Lecture des lignes ──────────────────────────────────────────────────────────
         line.clear();
         match reader.read_line(&mut line).await {
             Ok(0) => break,
@@ -87,7 +94,7 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, Serve
         }
 
         let response = 'server_response: {
-            // Parse du message
+            // ─── Parse des messages ──────────────────────────────────────────────────────────
             let msg: ServerMsg = match serde_json::from_str(line) {
                 Ok(m) => m,
                 Err(_) => {
@@ -98,7 +105,7 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, Serve
                 }
             };
 
-            // Création de la réponse
+            // ─── Création de la réponse ──────────────────────────────────────────────────────────
             match msg {
                 // Ping
                 ServerMsg::Ping {} => ClientMsg::Ping {
@@ -233,15 +240,32 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, Serve
                 }
 
                 // Save
-                ServerMsg::Save {} => ClientMsg::Error {
-                    status: "error".to_string(),
-                    message: "Not yet implemented".to_string(),
-                },
+                ServerMsg::Save {} => {
+                    let data = store.lock().unwrap();
+                    let to_save: HashMap<String, String> = data
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.value.clone()))
+                        .collect();
+
+                    match std::fs::File::create("dump.json").and_then(|file| {
+                        serde_json::to_writer(file, &to_save)
+                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+                    }) {
+                        Ok(()) => ClientMsg::Save {
+                            status: "ok".to_string(),
+                        },
+                        Err(e) => ClientMsg::Error {
+                            status: "error".to_string(),
+                            message: e.to_string(),
+                        },
+                    }
+                }
             }
         };
 
-        // Envoyer la réponse
-        if send_response(&mut write_half, &response).await.is_err() {
+        // ─── Envoie de la réponse ──────────────────────────────────────────────────────────
+        if let io::Result::Err(e) = send_response(&mut write_half, &response).await {
+            tracing::error!("Erreur lors de l'envoie de la réponse: {}", e);
             return;
         }
     }
@@ -255,4 +279,51 @@ where
     writer.write_all(json.as_bytes()).await?;
     writer.write_all(b"\n").await?;
     Ok(())
+}
+
+// ─── Tests ──────────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    const TEST_SERVER_ADDR: &str = "127.0.0.1:17878";
+
+    #[tokio::test]
+    async fn test_ping() {
+        // Spawn le serveur en arrière-plan sur un port de test
+        let server_handle = tokio::spawn(run_server(TEST_SERVER_ADDR));
+
+        // Attendre que le serveur soit prêt
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Connexion au serveur
+        let mut stream = TcpStream::connect(TEST_SERVER_ADDR)
+            .await
+            .expect("Connexion au serveur échouée");
+
+        // Envoyer la commande PING
+        let request = r#"{"cmd":"PING"}"#;
+        stream
+            .write_all(request.as_bytes())
+            .await
+            .expect("Écriture de la requête échouée");
+        stream.write_all(b"\n").await.expect("Écriture du newline échouée");
+
+        // Lire la réponse
+        let mut reader = BufReader::new(&mut stream);
+        let mut response = String::new();
+        reader
+            .read_line(&mut response)
+            .await
+            .expect("Lecture de la réponse échouée");
+
+        // Vérifier la réponse
+        let parsed: serde_json::Value =
+            serde_json::from_str(response.trim()).expect("Réponse JSON invalide");
+        assert_eq!(parsed["status"], "ok", "La réponse PING doit avoir status: ok");
+
+        // Fermer le serveur (il tournera indéfiniment sinon, mais le test est terminé)
+        server_handle.abort();
+    }
 }
