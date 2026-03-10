@@ -55,10 +55,10 @@ Chaque réponse contient un champ `"status"` (`"ok"` ou `"error"`) :
 
 | Commande | Réponse succès | Notes |
 |----------|---------------|-------|
-| `PING` | `{"status": "ok"}` | |
-| `SET` | `{"status": "ok"}` | |
-| `GET` | `{"status": "ok", "value": "bar"}` | `"value": null` si la clé n'existe pas |
-| `DEL` | `{"status": "ok", "count": 1}` | `0` si la clé n'existait pas |
+| `PING`   | `{"status": "ok"}` | |
+| `SET`    | `{"status": "ok"}` | |
+| `GET`    | `{"status": "ok", "value": "bar"}` | `"value": null` si la clé n'existe pas |
+| `DEL`    | `{"status": "ok", "count": 1}` | `0` si la clé n'existait pas |
 | `KEYS` | `{"status": "ok", "keys": ["a", "b"]}` | Liste de toutes les clés (ordre quelconque) |
 | `EXPIRE` | `{"status": "ok"}` | |
 | `TTL` | `{"status": "ok", "ttl": 25}` | `-1` si pas d'expiration, `-2` si clé inexistante |
