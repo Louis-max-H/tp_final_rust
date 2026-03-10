@@ -1,22 +1,19 @@
 use std::{
     collections::HashMap,
-    error::Error,
+    io,
     sync::{Arc, Mutex},
-    thread::{self, sleep},
-    time::Duration,
 };
+use tokio::io::{AsyncWrite, AsyncWriteExt, AsyncBufReadExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
-use tungstenite::{connect, Message};
 
 use crate::protocol::{ClientMsg, ServerMsg};
 
 mod protocol;
 
-const SERVER_URL: &str = "127.0.0.1:7878";
+const SERVER_ADDR: &str = "127.0.0.1:7878";
 
 #[tokio::main]
 async fn main() {
-    // Initialiser tracing
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -24,65 +21,83 @@ async fn main() {
         )
         .init();
 
-    // TODO: Implémenter le serveur MiniRedis sur 127.0.0.1:7878
+    let store: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
 
-    // Étapes suggérées :
-    // 1. Créer le store partagé (Arc<Mutex<HashMap<String, ...>>>)
-    let store: Arc<Mutex<HashMap<String, i64>>> = Arc::new(Mutex::new(HashMap::new()));
-
-    // 2. Bind un TcpListener sur 127.0.0.1:7878
-    let listener = TcpListener::bind(SERVER_URL)
+    let listener = TcpListener::bind(SERVER_ADDR)
         .await
         .expect("Failed to bind TCP listener");
 
-    // 3. Accept loop : pour chaque connexion, spawn une tâche
+    println!("Le serveur est lancé sur {} !", SERVER_ADDR);
+
     loop {
-        let (socket, store) = match listener.accept().await {
-            Ok((socket, _addr)) => (socket, store.clone()),
+        let (socket, _addr) = match listener.accept().await {
+            Ok(accept) => accept,
             Err(e) => {
                 tracing::error!("Erreur lors de l'acceptation de la connexion: {}", e);
                 continue;
             }
         };
+        let store = store.clone();
         tokio::spawn(async move {
             handle_client(socket, store).await;
         });
     }
-    // 4. Dans chaque tâche : lire les requêtes JSON ligne par ligne,
-    //    traiter la commande, envoyer la réponse JSON + '\n'
 }
 
-async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, i64>>>) {
-    let (mut ws, _response) = connect(SERVER_URL).expect("impossible de se connecter au serveur");
+#[allow(unused_variables)]
+async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, String>>>) {
+    let (read_half, mut write_half) = socket.into_split();
+    let mut reader = BufReader::new(read_half);
+    let mut line = String::new();
 
     loop {
-        let msg: ServerMsg = match read_server_msg(&mut ws) {
+        line.clear();
+        match reader.read_line(&mut line).await {
+            Ok(0) => break,
             Err(e) => {
-                tracing::error!("Erreur lors de la lecture du message: {}", e);
+                tracing::error!("Erreur de lecture: {}", e);
                 return;
             }
-            Ok(None) => {
-                thread::sleep(Duration::from_millis(50));
+            Ok(_) => {}
+        }
+
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let msg: ServerMsg = match serde_json::from_str(line) {
+            Ok(m) => m,
+            Err(_) => {
+                if send_response(
+                    &mut write_half,
+                    &ClientMsg::Error {
+                        status: "error".to_string(),
+                        message: "invalid json".to_string(),
+                    },
+                )
+                .await
+                .is_err()
+                {
+                    return;
+                }
                 continue;
             }
-            Ok(Some(msg)) => msg,
         };
 
         let response = match msg {
-            // Ping
             ServerMsg::Ping {} => ClientMsg::Ping {
                 status: "ok".to_string(),
             },
-
-            ServerMsg::Get { key } => ClientMsg::Error {
+            ServerMsg::Get { key: _ } => ClientMsg::Error {
                 status: "error".to_string(),
                 message: "Not yet implemented".to_string(),
             },
-            ServerMsg::Set { key, value } => ClientMsg::Error {
+            ServerMsg::Set { key: _, value: _ } => ClientMsg::Error {
                 status: "error".to_string(),
                 message: "Not yet implemented".to_string(),
             },
-            ServerMsg::Del { key } => ClientMsg::Error {
+            ServerMsg::Del { key: _ } => ClientMsg::Error {
                 status: "error".to_string(),
                 message: "Not yet implemented".to_string(),
             },
@@ -90,19 +105,19 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, i64>>
                 status: "error".to_string(),
                 message: "Not yet implemented".to_string(),
             },
-            ServerMsg::Expire { key, seconds } => ClientMsg::Error {
+            ServerMsg::Expire { key: _, seconds: _ } => ClientMsg::Error {
                 status: "error".to_string(),
                 message: "Not yet implemented".to_string(),
             },
-            ServerMsg::Ttl { key } => ClientMsg::Error {
+            ServerMsg::Ttl { key: _ } => ClientMsg::Error {
                 status: "error".to_string(),
                 message: "Not yet implemented".to_string(),
             },
-            ServerMsg::Incr { key } => ClientMsg::Error {
+            ServerMsg::Incr { key: _ } => ClientMsg::Error {
                 status: "error".to_string(),
                 message: "Not yet implemented".to_string(),
             },
-            ServerMsg::Decr { key } => ClientMsg::Error {
+            ServerMsg::Decr { key: _ } => ClientMsg::Error {
                 status: "error".to_string(),
                 message: "Not yet implemented".to_string(),
             },
@@ -111,23 +126,19 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, i64>>
                 message: "Not yet implemented".to_string(),
             },
         };
+
+        if send_response(&mut write_half, &response).await.is_err() {
+            return;
+        }
     }
 }
 
-// ─── Fonctions utilitaires (fournies) ───────────────────────────────────────
-type WsStream = tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>;
-
-/// Lit un message du serveur et le désérialise.
-fn read_server_msg(ws: &mut WsStream) -> Result<Option<ServerMsg>, Box<dyn Error>> {
-    match ws.read()? {
-        Message::Text(text) => Ok(serde_json::from_str(&text).ok()),
-        _ => Ok(None),
-    }
-}
-
-/// Sérialise et envoie un message au serveur.
-fn send_client_msg(ws: &mut WsStream, msg: &ClientMsg) {
+async fn send_response<W>(writer: &mut W, msg: &ClientMsg) -> io::Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
     let json = serde_json::to_string(msg).expect("sérialisation échouée");
-    ws.send(Message::Text(json.into()))
-        .expect("envoi WS échoué");
+    writer.write_all(json.as_bytes()).await?;
+    writer.write_all(b"\n").await?;
+    Ok(())
 }

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 // ─── Messages envoyés par le serveur ────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "cmd", content = "data")]
+#[serde(tag = "cmd", rename_all = "UPPERCASE")]
 pub enum ServerMsg {
     /// Premier message reçu après connexion.
     Ping {},
@@ -37,7 +37,7 @@ pub enum ServerMsg {
 // ─── Messages envoyés par le client ─────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
+#[serde(untagged)]
 pub enum ClientMsg {
     /// Premier message reçu après connexion.
     Ping {
