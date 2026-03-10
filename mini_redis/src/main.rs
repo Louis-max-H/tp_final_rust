@@ -3,7 +3,7 @@ use std::{
     io,
     sync::{Arc, Mutex},
 };
-use tokio::io::{AsyncWrite, AsyncWriteExt, AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::protocol::{ClientMsg, ServerMsg};
@@ -12,6 +12,7 @@ mod protocol;
 
 const SERVER_ADDR: &str = "127.0.0.1:7878";
 
+// ─── Programme principal ──────────────────────────────────────────────────────────
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -44,6 +45,7 @@ async fn main() {
     }
 }
 
+// ─── Client ──────────────────────────────────────────────────────────
 #[allow(unused_variables)]
 async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, String>>>) {
     let (read_half, mut write_half) = socket.into_split();
@@ -51,6 +53,7 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, Strin
     let mut line = String::new();
 
     loop {
+        // Lire les lignes
         line.clear();
         match reader.read_line(&mut line).await {
             Ok(0) => break,
@@ -66,6 +69,7 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, Strin
             continue;
         }
 
+        // Parse du message
         let msg: ServerMsg = match serde_json::from_str(line) {
             Ok(m) => m,
             Err(_) => {
@@ -85,22 +89,39 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, Strin
             }
         };
 
+        // Création de la réponse
         let response = match msg {
+            // Ping
             ServerMsg::Ping {} => ClientMsg::Ping {
                 status: "ok".to_string(),
             },
-            ServerMsg::Get { key: _ } => ClientMsg::Error {
-                status: "error".to_string(),
-                message: "Not yet implemented".to_string(),
-            },
-            ServerMsg::Set { key: _, value: _ } => ClientMsg::Error {
-                status: "error".to_string(),
-                message: "Not yet implemented".to_string(),
-            },
-            ServerMsg::Del { key: _ } => ClientMsg::Error {
-                status: "error".to_string(),
-                message: "Not yet implemented".to_string(),
-            },
+
+            // Get
+            ServerMsg::Get { key } => {
+                let data = store.lock().unwrap();
+                ClientMsg::Get {
+                    status: "ok".to_string(),
+                    value: data.get(&key).cloned(),
+                }
+            }
+
+            // Set
+            ServerMsg::Set { key, value } => {
+                let mut data = store.lock().unwrap();
+                data.insert(key, value);
+                ClientMsg::Set {
+                    status: "ok".to_string(),
+                }
+            }
+
+            // Del
+            ServerMsg::Del { key } => {
+                let mut data = store.lock().unwrap();
+                ClientMsg::Del {
+                    status: "ok".to_string(),
+                    count: data.remove(&key).map_or(0, |val| 1),
+                }
+            }
             ServerMsg::Keys {} => ClientMsg::Error {
                 status: "error".to_string(),
                 message: "Not yet implemented".to_string(),
