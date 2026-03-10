@@ -66,33 +66,33 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, i64>>
             Ok(Some(msg)) => msg
         };
 
-        match msg {
-            Ping {},
-            Get {
+        let response = match msg {
+            ServerMsg::Ping {} => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
+            ServerMsg::Get {
                 key: String,
-            },
-            Set {
+            } => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
+            ServerMsg::Set {
                 key: String,
                 value: String,
-            },
-            Del {
+            } => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
+            ServerMsg::Del {
                 key: String,
-            },
-            Keys {},
-            Expire {
+            } => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
+            ServerMsg::Keys {} => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
+            ServerMsg::Expire {
                 key: String,
                 seconds: usize,
-            },
-            Ttl {
+            } => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
+            ServerMsg::Ttl {
                 key: String,
-            },
-            Incr {
+            } => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
+            ServerMsg::Incr {
                 key: String,
-            },
+            } => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
             Decr {
                 key: String,
-            },
-            Save {},
+            } => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
+            Save {} => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
         }
 
         
