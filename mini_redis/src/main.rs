@@ -1,7 +1,9 @@
 use std::{
     collections::HashMap,
     error::Error,
-    sync::{Arc, Mutex}, thread::{self, sleep}, time::Duration,
+    sync::{Arc, Mutex},
+    thread::{self, sleep},
+    time::Duration,
 };
 use tokio::net::{TcpListener, TcpStream};
 use tungstenite::{connect, Message};
@@ -63,39 +65,52 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, i64>>
                 thread::sleep(Duration::from_millis(50));
                 continue;
             }
-            Ok(Some(msg)) => msg
+            Ok(Some(msg)) => msg,
         };
 
         let response = match msg {
-            ServerMsg::Ping {} => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
-            ServerMsg::Get {
-                key: String,
-            } => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
-            ServerMsg::Set {
-                key: String,
-                value: String,
-            } => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
-            ServerMsg::Del {
-                key: String,
-            } => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
-            ServerMsg::Keys {} => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
-            ServerMsg::Expire {
-                key: String,
-                seconds: usize,
-            } => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
-            ServerMsg::Ttl {
-                key: String,
-            } => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
-            ServerMsg::Incr {
-                key: String,
-            } => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
-            Decr {
-                key: String,
-            } => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
-            Save {} => {ClientMsg::Error {status :"error", message:"Not yet implemented"}},
-        }
+            // Ping
+            ServerMsg::Ping {} => ClientMsg::Ping {
+                status: "ok".to_string(),
+            },
 
-        
+            ServerMsg::Get { key } => ClientMsg::Error {
+                status: "error".to_string(),
+                message: "Not yet implemented".to_string(),
+            },
+            ServerMsg::Set { key, value } => ClientMsg::Error {
+                status: "error".to_string(),
+                message: "Not yet implemented".to_string(),
+            },
+            ServerMsg::Del { key } => ClientMsg::Error {
+                status: "error".to_string(),
+                message: "Not yet implemented".to_string(),
+            },
+            ServerMsg::Keys {} => ClientMsg::Error {
+                status: "error".to_string(),
+                message: "Not yet implemented".to_string(),
+            },
+            ServerMsg::Expire { key, seconds } => ClientMsg::Error {
+                status: "error".to_string(),
+                message: "Not yet implemented".to_string(),
+            },
+            ServerMsg::Ttl { key } => ClientMsg::Error {
+                status: "error".to_string(),
+                message: "Not yet implemented".to_string(),
+            },
+            ServerMsg::Incr { key } => ClientMsg::Error {
+                status: "error".to_string(),
+                message: "Not yet implemented".to_string(),
+            },
+            ServerMsg::Decr { key } => ClientMsg::Error {
+                status: "error".to_string(),
+                message: "Not yet implemented".to_string(),
+            },
+            ServerMsg::Save {} => ClientMsg::Error {
+                status: "error".to_string(),
+                message: "Not yet implemented".to_string(),
+            },
+        };
     }
 }
 
