@@ -59,7 +59,7 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, Strin
             Ok(0) => break,
             Err(e) => {
                 tracing::error!("Erreur de lecture: {}", e);
-                return;
+                continue;
             }
             Ok(_) => {}
         }
@@ -69,83 +69,82 @@ async fn handle_client(socket: TcpStream, store: Arc<Mutex<HashMap<String, Strin
             continue;
         }
 
-        // Parse du message
-        let msg: ServerMsg = match serde_json::from_str(line) {
-            Ok(m) => m,
-            Err(_) => {
-                if send_response(
-                    &mut write_half,
-                    &ClientMsg::Error {
+        let response = 'server_response: {
+            // Parse du message
+            let msg: ServerMsg = match serde_json::from_str(line) {
+                Ok(m) => m,
+                Err(_) => {
+                    break 'server_response ClientMsg::Error {
                         status: "error".to_string(),
                         message: "invalid json".to_string(),
-                    },
-                )
-                .await
-                .is_err()
-                {
-                    return;
+                    };
                 }
-                continue;
-            }
-        };
+            };
 
-        // Création de la réponse
-        let response = match msg {
-            // Ping
-            ServerMsg::Ping {} => ClientMsg::Ping {
-                status: "ok".to_string(),
-            },
-
-            // Get
-            ServerMsg::Get { key } => {
-                let data = store.lock().unwrap();
-                ClientMsg::Get {
+            // Création de la réponse
+            match msg {
+                // Ping
+                ServerMsg::Ping {} => ClientMsg::Ping {
                     status: "ok".to_string(),
-                    value: data.get(&key).cloned(),
-                }
-            }
+                },
 
-            // Set
-            ServerMsg::Set { key, value } => {
-                let mut data = store.lock().unwrap();
-                data.insert(key, value);
-                ClientMsg::Set {
-                    status: "ok".to_string(),
+                // Get
+                ServerMsg::Get { key } => {
+                    let data = store.lock().unwrap();
+                    ClientMsg::Get {
+                        status: "ok".to_string(),
+                        value: data.get(&key).cloned(),
+                    }
                 }
-            }
 
-            // Del
-            ServerMsg::Del { key } => {
-                let mut data = store.lock().unwrap();
-                ClientMsg::Del {
-                    status: "ok".to_string(),
-                    count: data.remove(&key).map_or(0, |val| 1),
+                // Set
+                ServerMsg::Set { key, value } => {
+                    let mut data = store.lock().unwrap();
+                    data.insert(key, value);
+                    ClientMsg::Set {
+                        status: "ok".to_string(),
+                    }
                 }
+
+                // Del
+                ServerMsg::Del { key } => {
+                    let mut data = store.lock().unwrap();
+                    ClientMsg::Del {
+                        status: "ok".to_string(),
+                        count: data.remove(&key).map_or(0, |val| 1),
+                    }
+                }
+
+                // Keys
+                ServerMsg::Keys {} => {
+                    let data = store.lock().unwrap();
+                    ClientMsg::Keys {
+                        status: "ok".to_string(),
+                        keys: data.keys().into_iter().cloned().collect(),
+                    }
+                }
+                
+                ServerMsg::Expire { key: _, seconds: _ } => ClientMsg::Error {
+                    status: "error".to_string(),
+                    message: "Not yet implemented".to_string(),
+                },
+                ServerMsg::Ttl { key: _ } => ClientMsg::Error {
+                    status: "error".to_string(),
+                    message: "Not yet implemented".to_string(),
+                },
+                ServerMsg::Incr { key: _ } => ClientMsg::Error {
+                    status: "error".to_string(),
+                    message: "Not yet implemented".to_string(),
+                },
+                ServerMsg::Decr { key: _ } => ClientMsg::Error {
+                    status: "error".to_string(),
+                    message: "Not yet implemented".to_string(),
+                },
+                ServerMsg::Save {} => ClientMsg::Error {
+                    status: "error".to_string(),
+                    message: "Not yet implemented".to_string(),
+                },
             }
-            ServerMsg::Keys {} => ClientMsg::Error {
-                status: "error".to_string(),
-                message: "Not yet implemented".to_string(),
-            },
-            ServerMsg::Expire { key: _, seconds: _ } => ClientMsg::Error {
-                status: "error".to_string(),
-                message: "Not yet implemented".to_string(),
-            },
-            ServerMsg::Ttl { key: _ } => ClientMsg::Error {
-                status: "error".to_string(),
-                message: "Not yet implemented".to_string(),
-            },
-            ServerMsg::Incr { key: _ } => ClientMsg::Error {
-                status: "error".to_string(),
-                message: "Not yet implemented".to_string(),
-            },
-            ServerMsg::Decr { key: _ } => ClientMsg::Error {
-                status: "error".to_string(),
-                message: "Not yet implemented".to_string(),
-            },
-            ServerMsg::Save {} => ClientMsg::Error {
-                status: "error".to_string(),
-                message: "Not yet implemented".to_string(),
-            },
         };
 
         if send_response(&mut write_half, &response).await.is_err() {
